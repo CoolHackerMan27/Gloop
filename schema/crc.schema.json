@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "CRC card set and walkthrough formats. The Workflow script uses the same definitions as structured-output schemas, so agents cannot return malformed cards.",
+  "$defs": {
+    "Responsibility": {
+      "type": "object",
+      "required": [
+        "id",
+        "text",
+        "type",
+        "reqs",
+        "collaborators"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique within the card, e.g. R1, R2."
+        },
+        "text": {
+          "type": "string",
+          "description": "Knowledge responsibilities start with 'Knows'; behavior responsibilities start with a verb."
+        },
+        "type": {
+          "enum": [
+            "K",
+            "B"
+          ],
+          "description": "K = knowledge (what the class knows), B = behavior (what the class does)."
+        },
+        "reqs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Requirement IDs this responsibility discharges, e.g. INT-24."
+        },
+        "collaborators": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Card ids this responsibility needs to get information from or delegate work to."
+        },
+        "contractRefs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "Which contract of a collaborator this responsibility uses, e.g. {\"DisplayScreen\": 7}. Needed when that collaborator offers more than one contract."
+        }
+      }
+    },
+    "Card": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "subsystem",
+        "purpose",
+        "superclass",
+        "subclasses",
+        "responsibilities"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "description": "Identifier used in collaborator references."
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "class",
+            "interface",
+            "actor",
+            "external"
+          ]
+        },
+        "subsystem": {
+          "type": "string"
+        },
+        "purpose": {
+          "type": "string",
+          "description": "One sentence for the back of the card: 'The purpose of this class is to ...'"
+        },
+        "superclass": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subclasses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "responsibilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Responsibility"
+          }
+        },
+        "contracts": {
+          "type": "array",
+          "description": "Contracts (Wirfs-Brock): numbered sets of public responsibilities that clients depend on. Responsibilities in no contract are private. Numbers are unique across the system.",
+          "items": {
+            "type": "object",
+            "required": [
+              "number",
+              "name",
+              "responsibilities"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "responsibilities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Responsibility ids on this card that make up the contract."
+              }
+            }
+          }
+        }
+      }
+    },
+    "SubsystemCard": {
+      "type": "object",
+      "required": [
+        "name",
+        "contracts"
+      ],
+      "additionalProperties": false,
+      "description": "Documents one subsystem (Wirfs-Brock). Its classes are the cards whose 'subsystem' is this name, so they are not listed here.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Matches the 'subsystem' field of its class cards."
+        },
+        "description": {
+          "type": "string"
+        },
+        "graph": {
+          "type": "string",
+          "description": "Where its collaboration graph is, e.g. a file path or 'Figure 4-6'."
+        },
+        "contracts": {
+          "type": "array",
+          "description": "Contracts the subsystem offers to classes outside it, each delegated to the class inside that serves it.",
+          "items": {
+            "type": "object",
+            "required": [
+              "number",
+              "name",
+              "server"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "number": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "The server class's contract number."
+              },
+              "name": {
+                "type": "string"
+              },
+              "server": {
+                "type": "string",
+                "description": "Card id of the class inside the subsystem that serves this contract."
+              }
+            }
+          }
+        }
+      }
+    },
+    "Step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "Card id that initiates the step."
+        },
+        "to": {
+          "type": "string",
+          "description": "Card id whose responsibility is invoked."
+        },
+        "responsibilityId": {
+          "type": "string",
+          "description": "Responsibility id on the 'to' card."
+        },
+        "note": {
+          "type": "string"
+        },
+        "break": {
+          "type": "boolean",
+          "description": "true when no card has a responsibility that performs this step."
+        },
+        "missing": {
+          "type": "string",
+          "description": "When break is true: the responsibility that would be needed."
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "Walkthrough": {
+      "type": "object",
+      "required": [
+        "scenarioId",
+        "title",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scenarioId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        }
+      }
+    }
+  },
+  "type": "object",
+  "required": [
+    "cards"
+  ],
+  "properties": {
+    "cards": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Card"
+      }
+    },
+    "walkthroughs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Walkthrough"
+      }
+    },
+    "subsystems": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SubsystemCard"
+      }
+    },
+    "$schema": {
+      "type": "string"
+    }
+  }
+}

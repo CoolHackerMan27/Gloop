@@ -1,0 +1,4 @@
+## Lending [LND]
+LND-01: The system shall let a member borrow a book that is available.
+LND-02: The system shall record the due date of each loan.
+LND-03: The system shall refuse a loan when the member has an overdue book.

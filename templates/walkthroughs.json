@@ -1,0 +1,14 @@
+{
+  "walkthroughs": [
+    {
+      "scenarioId": "S1",
+      "title": "Member borrows an available book",
+      "steps": [
+        { "from": "@Member", "to": "Member", "responsibilityId": "R1" },
+        { "from": "Member", "to": "Loan", "responsibilityId": "R1" },
+        { "from": "Loan", "to": "Member", "responsibilityId": "R2", "note": "checks for an overdue book" },
+        { "from": "Loan", "to": "Loan", "responsibilityId": "R2", "note": "records the due date" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Library (example)",
+  "cards": "cards.md",
+  "requirements": "requirements.txt",
+  "walkthroughs": "walkthroughs.json",
+  "out": "out",
+  "maxResponsibilities": 12,
+  "rules": {}
+}

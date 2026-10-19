@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRC Cards</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #15171a; --panel: #1c1f23; --panel2: #23272c; --input: #121417;
+    --border: #30353c; --border2: #3b414a;
+    --text: #e3e5e8; --muted: #8b929a;
+    --accent: #4a90d9; --accent-bg: #2f6fb3; --accent-weak: rgba(74, 144, 217, 0.14);
+    --ok: #3fb950; --warn: #d29922; --err: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .path { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  #status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #status.ok { color: var(--ok); } #status.err { color: var(--err); }
+
+  .layout { display: grid; grid-template-columns: 280px 1fr; min-height: 0; }
+  aside { border-right: 1px solid var(--border); background: var(--panel); overflow-y: auto; padding: 12px; }
+  main { overflow-y: auto; padding: 20px 24px 60px; min-width: 0; }
+
+  button { background: var(--panel2); border: 1px solid var(--border2); border-radius: 6px; padding: 5px 11px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent-bg); border-color: var(--accent-bg); color: #fff; }
+  button.primary:hover { background: #3a7cc2; }
+  button.danger { color: var(--err); }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  button.icon { padding: 2px 7px; color: var(--muted); }
+  button.icon:hover { color: var(--text); }
+  button:disabled { opacity: 0.4; cursor: default; }
+
+  input[type=text], input[type=number], select, textarea {
+    background: var(--input); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 60px; }
+  label.f { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+
+  /* sidebar */
+  #search { margin-bottom: 12px; }
+  .side-head { display: flex; justify-content: space-between; align-items: center; margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .side-head:first-of-type { margin-top: 0; }
+  .group { font-size: 12px; color: var(--muted); margin: 10px 0 2px 2px; }
+  .item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; cursor: pointer; color: var(--text); text-decoration: none; }
+  .item:hover { background: var(--panel2); }
+  .item.sel { background: var(--accent-weak); }
+  .item .kind { font-size: 11px; color: var(--muted); font-style: italic; }
+  .item.ghost { color: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; margin-left: auto; flex: none; }
+  .dot.err { background: var(--err); } .dot.warn { background: var(--warn); }
+  .empty-side { color: var(--muted); font-size: 13px; padding: 4px 2px; }
+
+  /* issues */
+  .issues { max-width: 900px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); margin-bottom: 20px; }
+  .issues .bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .issues ul { list-style: none; margin: 0; padding: 6px 0; max-height: 220px; overflow-y: auto; }
+  .issues li { padding: 3px 12px; font-size: 13px; }
+  .issues li.link { cursor: pointer; } .issues li.link:hover { background: var(--panel2); }
+  .sev { font-weight: 600; margin-right: 6px; } .sev.error { color: var(--err); } .sev.warning { color: var(--warn); }
+  .code { color: var(--muted); font-size: 12px; margin-right: 6px; }
+
+  /* card view */
+  .crc { max-width: 900px; border: 1px solid var(--border2); border-radius: 10px; background: var(--panel); overflow: hidden; }
+  .crc-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 14px 18px; border-bottom: 1px solid var(--border2); background: var(--panel2); }
+  .crc-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border2); color: var(--muted); }
+  .crc-head .sub { color: var(--muted); margin-left: auto; font-size: 13px; }
+  .crc-meta { padding: 8px 18px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); }
+  table.rc { width: 100%; border-collapse: collapse; }
+  table.rc th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 18px; border-bottom: 1px solid var(--border); }
+  table.rc td { padding: 7px 18px; vertical-align: top; border-bottom: 1px solid var(--border); }
+  table.rc tr:last-child td { border-bottom: none; }
+  table.rc td:first-child, table.rc th:first-child { width: 68%; border-right: 1px solid var(--border2); }
+  .rid { color: var(--muted); font-size: 12px; margin-right: 6px; }
+  .kb { display: inline-block; width: 18px; text-align: center; font-size: 11px; font-weight: 700; border-radius: 4px; margin-right: 6px; }
+  .kb.K { color: #9fb3c8; background: rgba(159, 179, 200, 0.12); }
+  .kb.B { color: var(--accent); background: var(--accent-weak); }
+  .reqs { display: block; color: var(--muted); font-size: 12px; margin: 2px 0 0 54px; }
+  .collab { cursor: pointer; color: var(--accent); }
+  .collab:hover { text-decoration: underline; }
+  .cref { color: var(--muted); font-size: 12px; }
+  .section { padding: 12px 18px; border-top: 1px solid var(--border2); }
+  .section h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .section p { margin: 0; }
+  .section ul { margin: 0; padding-left: 18px; }
+  .muted { color: var(--muted); }
+  .warn-text { color: var(--warn); font-size: 12px; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; max-width: 900px; }
+  .actions .spacer { flex: 1; }
+
+  /* forms */
+  .form { max-width: 900px; }
+  .form h2 { margin: 0 0 16px; font-size: 18px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
+  .span2 { grid-column: span 2; } .span4 { grid-column: span 4; }
+  fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 0 0 14px; }
+  legend { padding: 0 6px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .row { border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: var(--panel); }
+  .row-top { display: grid; grid-template-columns: 34px 64px 1fr auto; gap: 8px; align-items: center; }
+  .row-bot { display: grid; grid-template-columns: 34px 220px 1fr; gap: 8px; align-items: start; margin-top: 6px; }
+  .row .rid { text-align: center; margin: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--panel2); border: 1px solid var(--border2); border-radius: 14px; padding: 1px 4px 1px 10px; font-size: 13px; }
+  .chip select { width: auto; padding: 0 4px; font-size: 12px; border-radius: 4px; }
+  .chip button { border: none; background: none; padding: 0 5px; color: var(--muted); }
+  .chip button:hover { color: var(--err); }
+  .chips > select { width: auto; min-width: 150px; padding: 3px 6px; font-size: 13px; }
+  .k-row { display: grid; grid-template-columns: 80px 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .k-resps { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; margin-bottom: 8px; }
+  .k-resps label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .s-row { display: grid; grid-template-columns: 80px 1fr 220px auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
+  .errors { border: 1px solid var(--err); color: var(--err); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
+  .errors ul { margin: 0; padding-left: 18px; }
+
+  /* graph */
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .toolbar select { width: auto; }
+  .graph-box { background: #fff; border-radius: 8px; padding: 12px; overflow: auto; max-height: calc(100vh - 170px); }
+  .graph-box svg { display: block; max-width: none; }
+  .center { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .center h2 { color: var(--text); font-weight: 600; }
+  kbd { background: var(--panel2); border: 1px solid var(--border2); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CRC Cards</h1>
+  <span class="path" id="path"></span>
+  <span id="status"></span>
+  <button id="btn-check" title="Run crc check on the saved file">Check</button>
+  <button id="btn-graph" title="Collaboration graph of the saved file">Graph</button>
+</header>
+<div class="layout">
+  <aside id="side"></aside>
+  <main id="main"></main>
+</div>
+
+<script>
+'use strict';
+const KINDS = ['class', 'interface', 'actor', 'external'];
+const S = {
+  path: '', exists: false, mtime: null, cards: [], subsystems: [],
+  sel: null,          // { type: 'card', id } | { type: 'sub', name }
+  mode: 'view',       // 'view' | 'edit' | 'graph'
+  draft: null, snap: '', idTouched: false, formErrors: [],
+  issues: null, graphSub: '', graph: null, filter: '',
+};
+
+// ------------------------------------------------------------ helpers
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const byId = (id) => S.cards.find((c) => c.id === id);
+const nameOf = (id) => (byId(id) || {}).name || id;
+const subCard = (name) => S.subsystems.find((s) => s.name === name);
+
+// Same rule as lib.js toIdentifier: "Model Interface" -> "ModelInterface".
+function toId(s) {
+  const words = String(s).replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  const id = words.map((w) => w[0].toUpperCase() + w.slice(1)).join('');
+  return id && !/^[A-Za-z]/.test(id) ? 'X' + id : id;
+}
+
+// "INT-01, INT-02 TS-01–TS-05" -> ['INT-01', 'INT-02', 'TS-01–TS-05']; ranges are expanded by crc.
+function parseReqs(text) {
+  return String(text || '').split(/[,;]+/)
+    .flatMap((ch) => (/\s[–—-]\s/.test(ch) ? [ch.trim()] : ch.trim().split(/\s+/)))
+    .map((t) => t.trim().toUpperCase()).filter(Boolean);
+}
+
+function normCard(c) {
+  const resps = (c.responsibilities || []).map((r, i) => ({
+    id: r.id || `R${i + 1}`,
+    text: r.text || '',
+    type: r.type === 'K' || r.type === 'B' ? r.type : (/^knows\b/i.test(r.text || '') ? 'K' : 'B'),
+    reqs: [...(r.reqs || [])],
+    collaborators: [...(r.collaborators || [])],
+    ...(r.contractRefs ? { contractRefs: { ...r.contractRefs } } : {}),
+  }));
+  return {
+    id: c.id || toId(c.name || 'Card'), name: c.name || c.id || '', kind: KINDS.includes(c.kind) ? c.kind : 'class',
+    subsystem: c.subsystem || '', purpose: c.purpose || '', superclass: c.superclass || null,
+    subclasses: [...(c.subclasses || [])],
+    ...(Array.isArray(c.contracts) && c.contracts.length ? { contracts: clone(c.contracts) } : {}),
+    responsibilities: resps,
+  };
+}
+
+function normSub(s) {
+  return { name: s.name || '', graph: s.graph || '', description: s.description || '', contracts: (s.contracts || []).map((k) => ({ number: k.number, name: k.name || '', server: k.server || '' })) };
+}
+
+// Subsystem names in card order, then any subsystem card without classes.
+function subsystemNames() {
+  const out = [];
+  for (const c of S.cards) if (c.subsystem && !out.includes(c.subsystem)) out.push(c.subsystem);
+  for (const s of S.subsystems) if (s.name && !out.includes(s.name)) out.push(s.name);
+  return out;
+}
+
+// Contracts a card offers, including its superclass chain (as crc counts them).
+function offered(id, cards = S.cards, seen = new Set()) {
+  const c = cards.find((x) => x.id === id);
+  if (!c || seen.has(id)) return [];
+  seen.add(id);
+  return [...(c.contracts || []).map((k) => ({ ...k, card: id })), ...offered(c.superclass, cards, seen)];
+}
+
+function usedBy(id) {
+  return S.cards.filter((c) => c.id !== id && c.responsibilities.some((r) => r.collaborators.includes(id)));
+}
+
+function setStatus(text, cls = '') {
+  const el = $('status');
+  el.textContent = text;
+  el.className = cls;
+  clearTimeout(setStatus.t);
+  if (cls === 'ok') setStatus.t = setTimeout(() => { el.textContent = ''; el.className = ''; }, 2500);
+}
+
+const dirty = () => S.mode === 'edit' && JSON.stringify(S.draft) !== S.snap;
+function leaveOk() {
+  return !dirty() || confirm('Discard your unsaved changes to this card?');
+}
+
+// ------------------------------------------------------------ server
+async function load() {
+  const r = await fetch('/api/project');
+  const j = await r.json();
+  if (j.error) { setStatus(j.error, 'err'); return; }
+  S.path = j.path; S.exists = j.exists; S.mtime = j.mtime;
+  S.cards = j.cards.map(normCard);
+  S.subsystems = j.subsystems.map(normSub);
+  $('path').textContent = j.path + (j.exists ? '' : '  (new file: created on first save)');
+  $('path').title = j.path;
+  if (S.sel && S.sel.type === 'card' && !byId(S.sel.id)) S.sel = null;
+  if (!S.sel && S.cards.length) S.sel = { type: 'card', id: S.cards[0].id };
+  render();
+}
+
+async function persist(cards, subsystems, force = false) {
+  const r = await fetch('/api/save', { method: 'POST', body: JSON.stringify({ cards, subsystems, mtime: S.mtime, force }) });
+  const j = await r.json();
+  if (r.status === 409) {
+    if (confirm(`${j.error}\n\nOverwrite it with your version?\n(Cancel keeps your edit open; copy what you need, then reload the page.)`)) return persist(cards, subsystems, true);
+    setStatus('Not saved: the file changed on disk', 'err');
+    return false;
+  }
+  if (!r.ok) { setStatus(`Save failed: ${j.error}`, 'err'); return false; }
+  S.cards = cards; S.subsystems = subsystems; S.mtime = j.mtime; S.exists = true;
+  $('path').textContent = S.path;
+  setStatus('Saved', 'ok');
+  if (S.issues) runCheck(true);
+  return true;
+}
+
+async function runCheck(quiet = false) {
+  if (!quiet) setStatus('Checking…');
+  const r = await fetch('/api/check', { method: 'POST', body: '{}' });
+  S.issues = await r.json();
+  if (!quiet) setStatus('');
+  render();
+}
+
+async function loadGraph() {
+  S.graph = { loading: true };
+  renderMain();
+  const r = await fetch('/api/graph', { method: 'POST', body: JSON.stringify({ subsystem: S.graphSub || null }) });
+  S.graph = await r.json();
+  if (S.mode === 'graph') renderMain();
+}
+
+// ------------------------------------------------------------ sidebar
+function issueLevel(id) {
+  if (!S.issues || S.issues.error) return '';
+  if ((S.issues.errors || []).some((i) => i.card === id)) return 'err';
+  if ((S.issues.warnings || []).some((i) => i.card === id)) return 'warn';
+  return '';
+}
+
+function renderSide() {
+  const f = S.filter.toLowerCase();
+  const match = (c) => !f || c.name.toLowerCase().includes(f) || c.id.toLowerCase().includes(f) || c.subsystem.toLowerCase().includes(f);
+  const groups = new Map();
+  for (const c of S.cards.filter(match)) {
+    const g = c.subsystem || 'No subsystem';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(c);
+  }
+  const isSel = (t, k) => S.sel && S.sel.type === t && (S.sel.id === k || S.sel.name === k) && S.mode !== 'graph';
+  let h = `<input type="text" id="search" placeholder="Filter cards" value="${esc(S.filter)}">`;
+  h += `<div class="side-head"><span>Class cards (${S.cards.length})</span><button class="small" data-act="new-card">+ New</button></div>`;
+  if (!S.cards.length) h += '<div class="empty-side">No cards yet.</div>';
+  for (const [g, list] of groups) {
+    h += `<div class="group">${esc(g)}</div>`;
+    for (const c of list) {
+      const lvl = issueLevel(c.id);
+      h += `<a class="item${isSel('card', c.id) ? ' sel' : ''}" data-act="sel-card" data-id="${esc(c.id)}">${esc(c.name || c.id)}`
+        + (c.kind !== 'class' ? ` <span class="kind">${c.kind}</span>` : '')
+        + (lvl ? `<span class="dot ${lvl}"></span>` : '') + '</a>';
+    }
+  }
+  const names = subsystemNames();
+  h += `<div class="side-head"><span>Subsystem cards</span><button class="small" data-act="new-sub">+ New</button></div>`;
+  if (!names.length) h += '<div class="empty-side">Give cards a subsystem, then document it here.</div>';
+  for (const n of names) {
+    const has = !!subCard(n);
+    h += `<a class="item${has ? '' : ' ghost'}${isSel('sub', n) ? ' sel' : ''}" data-act="sel-sub" data-name="${esc(n)}">${esc(n)}${has ? '' : ' <span class="kind">no card</span>'}</a>`;
+  }
+  const side = $('side');
+  const focused = document.activeElement && document.activeElement.id === 'search';
+  side.innerHTML = h;
+  if (focused) { const s = $('search'); s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
+}
+
+// ------------------------------------------------------------ issues panel
+function issuesHtml() {
+  const I = S.issues;
+  if (!I) return '';
+  if (I.error) return `<div class="issues"><div class="bar"><span class="sev error">Check failed</span><span>${esc(I.error)}</span><span style="flex:1"></span><button class="icon" data-act="close-issues">✕</button></div></div>`;
+  const all = [...(I.errors || []), ...(I.warnings || [])];
+  const summary = all.length ? `${(I.errors || []).length} error(s), ${(I.warnings || []).length} warning(s)` : 'No problems found';
+  let h = `<div class="issues"><div class="bar"><strong>crc check</strong><span class="${(I.errors || []).length ? 'sev error' : 'muted'}">${summary}</span><span style="flex:1"></span><button class="small" data-act="recheck">Re-run</button><button class="icon" data-act="close-issues">✕</button></div>`;
+  if (all.length) {
+    h += '<ul>' + all.map((i) => `<li class="${i.card && byId(i.card) ? 'link' : ''}" ${i.card ? `data-act="sel-card" data-id="${esc(i.card)}"` : ''}><span class="sev ${i.severity}">${i.severity === 'error' ? 'error' : 'warn'}</span><span class="code">${esc(i.code)}</span>${esc(i.message)}</li>`).join('') + '</ul>';
+  }
+  return h + '</div>';
+}
+
+// ------------------------------------------------------------ card view
+function cardView(c) {
+  const refsFor = (r, cid) => (r.contractRefs && r.contractRefs[cid] != null ? ` <span class="cref">(${r.contractRefs[cid]})</span>` : '');
+  const collab = (cid) => (byId(cid) ? `<span class="collab" data-act="sel-card" data-id="${esc(cid)}">${esc(nameOf(cid))}</span>` : `<span class="warn-text" title="No card with this id">${esc(cid)} ?</span>`);
+  const contractOf = (rid) => (c.contracts || []).find((k) => (k.responsibilities || []).includes(rid));
+  let rows = c.responsibilities.map((r) => {
+    const k = contractOf(r.id);
+    return `<tr><td><span class="rid">${esc(r.id)}</span><span class="kb ${r.type}">${r.type}</span>${esc(r.text)}`
+      + (r.reqs.length || k ? `<span class="reqs">${esc(r.reqs.join(', '))}${k ? `${r.reqs.length ? ' · ' : ''}contract ${k.number}` : ''}</span>` : '')
+      + `</td><td>${r.collaborators.map((cid) => collab(cid) + refsFor(r, cid)).join(', ') || '<span class="muted">—</span>'}</td></tr>`;
+  }).join('');
+  if (!rows) rows = '<tr><td class="muted">No responsibilities yet.</td><td></td></tr>';
+  const sup = c.superclass ? (byId(c.superclass) ? collab(c.superclass) : esc(c.superclass)) : 'none';
+  const subs = c.subclasses.length ? c.subclasses.map(collab).join(', ') : 'none';
+  const users = usedBy(c.id);
+  let h = issuesHtml();
+  h += `<div class="crc"><div class="crc-head"><h2>${esc(c.name || c.id)}</h2>${c.kind !== 'class' ? `<span class="badge">${c.kind}</span>` : ''}<span class="muted" style="font-size:12px">${esc(c.id)}</span>`
+    + `<span class="sub">${c.subsystem ? `<span class="collab" data-act="sel-sub" data-name="${esc(c.subsystem)}">${esc(c.subsystem)}</span>` : 'no subsystem'}</span></div>`;
+  h += `<div class="crc-meta">Superclass: ${sup} · Subclasses: ${subs}</div>`;
+  h += `<table class="rc"><thead><tr><th>Responsibilities</th><th>Collaborators</th></tr></thead><tbody>${rows}</tbody></table>`;
+  if ((c.contracts || []).length) {
+    h += '<div class="section"><h3>Contracts</h3><ul>' + c.contracts.map((k) => `<li><strong>${esc(k.number)}. ${esc(k.name)}</strong> <span class="muted">${esc((k.responsibilities || []).join(', ') || 'no responsibilities')}</span></li>`).join('') + '</ul></div>';
+  }
+  h += `<div class="section"><h3>Purpose (back of the card)</h3><p>${c.purpose ? esc(c.purpose) : '<span class="muted">No purpose written yet.</span>'}</p></div>`;
+  h += `<div class="section"><h3>Used by</h3><p>${users.length ? users.map((u) => collab(u.id)).join(', ') : '<span class="muted">No card lists this one as a collaborator.</span>'}</p></div>`;
+  h += '</div>';
+  h += `<div class="actions"><button class="primary" data-act="edit-card">Edit</button><span class="spacer"></span><button class="danger" data-act="del-card">Delete</button></div>`;
+  return h;
+}
+
+// ------------------------------------------------------------ subsystem view
+function subView(name) {
+  const s = subCard(name);
+  const members = S.cards.filter((c) => c.subsystem === name);
+  const collab = (cid) => (byId(cid) ? `<span class="collab" data-act="sel-card" data-id="${esc(cid)}">${esc(nameOf(cid))}</span>` : esc(cid));
+  let h = issuesHtml();
+  if (!s) {
+    return h + `<div class="center"><h2>${esc(name)}</h2><p>${members.length} class card(s) are in this subsystem, but it has no subsystem card yet.</p><button class="primary" data-act="new-sub" data-name="${esc(name)}">Make its subsystem card</button></div>`;
+  }
+  h += `<div class="crc"><div class="crc-head"><span class="muted">Subsystem:</span><h2>${esc(s.name)}</h2></div>`;
+  h += `<div class="section" style="border-top:none"><h3>Classes</h3><p>${members.length ? members.map((m) => collab(m.id)).join(', ') : '<span class="muted">No class card has this subsystem yet.</span>'}</p></div>`;
+  h += `<div class="section"><h3>Collaboration graph</h3><p>${s.graph ? esc(s.graph) + ' · ' : ''}<a href="#" data-act="graph-of" data-name="${esc(s.name)}">show it</a></p></div>`;
+  h += `<div class="section"><h3>Description</h3><p>${s.description ? esc(s.description) : '<span class="muted">No description yet.</span>'}</p></div>`;
+  h += '<div class="section"><h3>Contracts</h3>';
+  if (!s.contracts.length) h += '<p class="muted">No subsystem contracts yet.</p>';
+  else {
+    h += '<table class="rc"><tbody>' + s.contracts.map((k) => {
+      const warns = [];
+      if (k.server && !members.some((m) => m.id === k.server)) warns.push(`${nameOf(k.server)} isn't in this subsystem`);
+      else if (k.server && !offered(k.server).some((o) => +o.number === +k.number)) warns.push(`${nameOf(k.server)} has no contract ${k.number}`);
+      if (!k.server) warns.push('no server class');
+      return `<tr><td><strong>${esc(k.number)}. ${esc(k.name)}</strong>${warns.length ? `<br><span class="warn-text">${esc(warns.join('; '))}</span>` : ''}</td><td><span class="muted">Server:</span> ${k.server ? collab(k.server) : '—'}</td></tr>`;
+    }).join('') + '</tbody></table>';
+  }
+  h += '</div></div>';
+  h += `<div class="actions"><button class="primary" data-act="edit-sub">Edit</button><span class="spacer"></span><button class="danger" data-act="del-sub">Delete</button></div>`;
+  return h;
+}
+
+// ------------------------------------------------------------ card form
+function startEditCard(card) {
+  const d = card ? clone(card) : normCard({ name: '', subsystem: S.sel && S.sel.type === 'sub' ? S.sel.name : '' });
+  if (!card) { d.id = ''; d.responsibilities = [{ id: 'R1', text: '', type: 'B', reqs: [], collaborators: [] }]; }
+  d.contracts = d.contracts || [];
+  for (const r of d.responsibilities) r._reqs = r.reqs.join(', ');
+  d.origId = card ? card.id : null;
+  S.draft = { type: 'card', ...d };
+  S.idTouched = !!card; // ids of existing cards only change on purpose
+  S.formErrors = [];
+  S.mode = 'edit';
+  S.snap = JSON.stringify(S.draft);
+  render();
+  const n = document.querySelector('[data-f="name"]');
+  if (n && !card) n.focus();
+}
+
+function collabOptions(d, chosen) {
+  const self = new Set([d.id, d.origId]);
+  return S.cards.filter((c) => !self.has(c.id) && !chosen.includes(c.id))
+    .map((c) => `<option value="${esc(c.id)}">${esc(c.name || c.id)}</option>`).join('');
+}
+
+function cardForm() {
+  const d = S.draft;
+  const subOpts = subsystemNames().map((n) => `<option value="${esc(n)}">`).join('');
+  const others = S.cards.filter((c) => c.id !== d.origId);
+  let h = `<div class="form"><h2>${d.origId ? `Edit ${esc(d.origId)}` : 'New class card'}</h2>`;
+  if (S.formErrors.length) h += `<div class="errors"><ul>${S.formErrors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>`;
+  h += '<div class="grid">'
+    + `<div class="span2"><label class="f">Name</label><input type="text" data-f="name" value="${esc(d.name)}" placeholder="Key Store"></div>`
+    + `<div><label class="f">Id (used in references)</label><input type="text" data-f="id" value="${esc(d.id)}" placeholder="KeyStore"></div>`
+    + `<div><label class="f">Kind</label><select data-f="kind">${KINDS.map((k) => `<option${k === d.kind ? ' selected' : ''}>${k}</option>`).join('')}</select></div>`
+    + `<div class="span2"><label class="f">Subsystem</label><input type="text" data-f="subsystem" list="subs" value="${esc(d.subsystem)}" placeholder="Signing and Verification"><datalist id="subs">${subOpts}</datalist></div>`
+    + `<div><label class="f">Superclass</label><select data-f="superclass"><option value="">none</option>${others.map((c) => `<option value="${esc(c.id)}"${c.id === d.superclass ? ' selected' : ''}>${esc(c.name || c.id)}</option>`).join('')}</select></div>`
+    + `<div><label class="f">Subclasses</label><div class="chips">${d.subclasses.map((s, i) => `<span class="chip">${esc(nameOf(s))}<button data-act="rm-subclass" data-i="${i}" title="Remove">✕</button></span>`).join('')}`
+    + `<select data-act="add-subclass"><option value="">+ add</option>${others.filter((c) => !d.subclasses.includes(c.id) && c.id !== d.superclass).map((c) => `<option value="${esc(c.id)}">${esc(c.name || c.id)}</option>`).join('')}</select></div></div>`
+    + `<div class="span4"><label class="f">Purpose (back of the card)</label><textarea data-f="purpose" placeholder="The purpose of this class is to …">${esc(d.purpose)}</textarea></div>`
+    + '</div>';
+
+  h += '<fieldset><legend>Responsibilities</legend>';
+  h += '<p class="hint">K = knows something, B = does something. Requirements are comma-separated (ranges like TS-01–TS-05 work). Ids stay put when you reorder, since walkthroughs refer to them.</p>';
+  d.responsibilities.forEach((r, i) => {
+    const chips = r.collaborators.map((cid, j) => {
+      const offers = cid === d.origId ? d.contracts : offered(cid);
+      const ref = r.contractRefs && r.contractRefs[cid];
+      const sel = offers.length > 1 ? `<select data-cref="${esc(cid)}" data-r="${i}" title="Which of its contracts this uses"><option value="">contract?</option>${offers.map((k) => `<option value="${k.number}"${+ref === +k.number ? ' selected' : ''}>${k.number}${k.name ? ' · ' + esc(k.name) : ''}</option>`).join('')}</select>` : '';
+      return `<span class="chip">${esc(nameOf(cid))}${sel}<button data-act="rm-collab" data-r="${i}" data-j="${j}" title="Remove">✕</button></span>`;
+    }).join('');
+    h += `<div class="row"><div class="row-top"><span class="rid">${esc(r.id)}</span>`
+      + `<select data-r="${i}" data-f="type"><option value="K"${r.type === 'K' ? ' selected' : ''}>K</option><option value="B"${r.type === 'B' ? ' selected' : ''}>B</option></select>`
+      + `<input type="text" data-r="${i}" data-f="text" value="${esc(r.text)}" placeholder="${r.type === 'K' ? 'Knows …' : 'Verb phrase: what it does'}">`
+      + `<span><button class="icon" data-act="up" data-r="${i}" title="Move up"${i ? '' : ' disabled'}>↑</button><button class="icon" data-act="down" data-r="${i}" title="Move down"${i < d.responsibilities.length - 1 ? '' : ' disabled'}>↓</button><button class="icon" data-act="rm-resp" data-r="${i}" title="Delete">✕</button></span></div>`
+      + `<div class="row-bot"><span></span><input type="text" data-r="${i}" data-f="reqs" value="${esc(r._reqs)}" placeholder="Reqs: INT-01, SEC-05">`
+      + `<div class="chips">${chips}<select data-act="add-collab" data-r="${i}"><option value="">+ collaborator</option>${collabOptions(d, r.collaborators)}</select></div></div></div>`;
+  });
+  h += '<button data-act="add-resp">+ Responsibility</button></fieldset>';
+
+  h += '<fieldset><legend>Contracts (optional)</legend>';
+  h += '<p class="hint">Numbered services this class offers to others. Numbers are unique across the whole system. Responsibilities in no contract are private.</p>';
+  d.contracts.forEach((k, i) => {
+    h += `<div class="k-row"><input type="number" min="1" data-k="${i}" data-f="number" value="${esc(k.number)}" title="Contract number">`
+      + `<input type="text" data-k="${i}" data-f="name" value="${esc(k.name)}" placeholder="Contract name, e.g. Sign a document">`
+      + `<button class="icon" data-act="rm-contract" data-k="${i}" title="Delete">✕</button>`
+      + `<div class="k-resps">${d.responsibilities.map((r) => `<label title="${esc(r.text)}"><input type="checkbox" data-k="${i}" data-rid="${esc(r.id)}"${(k.responsibilities || []).includes(r.id) ? ' checked' : ''}>${esc(r.id)}</label>`).join('') || '<span class="muted">Add responsibilities first.</span>'}</div></div>`;
+  });
+  h += '<button data-act="add-contract">+ Contract</button></fieldset>';
+  h += `<div class="actions"><button class="primary" data-act="save-card">Save card</button><button data-act="cancel">Cancel</button><span class="spacer"></span><span class="muted" style="font-size:12px"><kbd>⌘S</kbd> / <kbd>Ctrl+S</kbd> saves</span></div></div>`;
+  return h;
+}
+
+function nextContractNumber(exclude) {
+  const nums = S.cards.filter((c) => c.id !== exclude).flatMap((c) => (c.contracts || []).map((k) => +k.number));
+  if (S.draft && S.draft.contracts) nums.push(...S.draft.contracts.map((k) => +k.number || 0));
+  return Math.max(0, ...nums) + 1;
+}
+
+function renameRefs(cards, subs, from, to) {
+  for (const c of cards) {
+    if (c.superclass === from) c.superclass = to;
+    c.subclasses = c.subclasses.map((s) => (s === from ? to : s));
+    for (const r of c.responsibilities) {
+      r.collaborators = r.collaborators.map((x) => (x === from ? to : x));
+      if (r.contractRefs && from in r.contractRefs) { r.contractRefs[to] = r.contractRefs[from]; delete r.contractRefs[from]; }
+    }
+  }
+  for (const s of subs) for (const k of s.contracts) if (k.server === from) k.server = to;
+}
+
+// Keep both sides of inheritance in step, so the card's lists are the truth.
+function syncInheritance(cards, card) {
+  for (const c of cards) {
+    if (c.id === card.id) continue;
+    if (c.id === card.superclass) { if (!c.subclasses.includes(card.id)) c.subclasses.push(card.id); }
+    else c.subclasses = c.subclasses.filter((x) => x !== card.id);
+    if (card.subclasses.includes(c.id)) c.superclass = card.id;
+    else if (c.superclass === card.id) c.superclass = null;
+  }
+}
+
+async function saveCard() {
+  const d = S.draft;
+  const errs = [];
+  d.name = d.name.trim(); d.id = d.id.trim();
+  if (!d.name) errs.push('Give the card a name.');
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(d.id)) errs.push('The id has to start with a letter and use only letters, digits and _.');
+  else if (S.cards.some((c) => c.id === d.id && c.id !== d.origId)) errs.push(`Another card already has the id ${d.id}.`);
+  const seen = new Set();
+  for (const k of d.contracts) {
+    const n = +k.number;
+    if (!Number.isInteger(n) || n < 1) { errs.push('Contract numbers must be whole numbers from 1 up.'); continue; }
+    if (seen.has(n)) errs.push(`Contract ${n} appears twice on this card.`);
+    seen.add(n);
+    const other = S.cards.find((c) => c.id !== d.origId && (c.contracts || []).some((x) => +x.number === n));
+    if (other) errs.push(`Contract ${n} is already used by ${other.name || other.id} (numbers are system-wide).`);
+    if (!k.name.trim()) errs.push(`Contract ${n} needs a name.`);
+  }
+  S.formErrors = errs;
+  if (errs.length) { renderMain(); $('main').scrollTop = 0; return; }
+
+  const resps = d.responsibilities.filter((r) => r.text.trim()).map((r) => {
+    const o = { id: r.id, text: r.text.trim(), type: r.type, reqs: parseReqs(r._reqs), collaborators: [...r.collaborators] };
+    const refs = Object.fromEntries(Object.entries(r.contractRefs || {}).filter(([cid, n]) => r.collaborators.includes(cid) && n));
+    if (Object.keys(refs).length) o.contractRefs = refs;
+    return o;
+  });
+  const keep = new Set(resps.map((r) => r.id));
+  const contracts = d.contracts.map((k) => ({ number: +k.number, name: k.name.trim(), ...(k.description ? { description: k.description } : {}), responsibilities: (k.responsibilities || []).filter((id) => keep.has(id)) }));
+  const card = { id: d.id, name: d.name, kind: d.kind, subsystem: d.subsystem.trim(), purpose: d.purpose.trim(), superclass: d.superclass || null, subclasses: [...d.subclasses] };
+  if (contracts.length) card.contracts = contracts;
+  card.responsibilities = resps;
+
+  const cards = clone(S.cards);
+  const subs = clone(S.subsystems);
+  if (d.origId && d.origId !== d.id) renameRefs(cards, subs, d.origId, d.id);
+  const i = cards.findIndex((c) => c.id === (d.origId || d.id));
+  if (i >= 0) cards[i] = card; else cards.push(card);
+  syncInheritance(cards, card);
+  if (await persist(cards, subs)) {
+    S.mode = 'view'; S.draft = null; S.sel = { type: 'card', id: card.id };
+    render();
+  }
+}
+
+async function deleteCard(id) {
+  const users = usedBy(id);
+  const served = S.subsystems.filter((s) => s.contracts.some((k) => k.server === id));
+  const msg = `Delete ${nameOf(id)}?` + (users.length ? `\n\nIt's a collaborator of ${users.map((u) => u.name || u.id).join(', ')}; those references are removed too.` : '')
+    + (served.length ? `\n\nIt serves contracts on the ${served.map((s) => s.name).join(', ')} subsystem card(s); those contracts are removed.` : '');
+  if (!confirm(msg)) return;
+  const subs = clone(S.subsystems);
+  for (const s of subs) s.contracts = s.contracts.filter((k) => k.server !== id);
+  const cards = clone(S.cards).filter((c) => c.id !== id);
+  for (const c of cards) {
+    if (c.superclass === id) c.superclass = null;
+    c.subclasses = c.subclasses.filter((s) => s !== id);
+    for (const r of c.responsibilities) {
+      r.collaborators = r.collaborators.filter((x) => x !== id);
+      if (r.contractRefs) { delete r.contractRefs[id]; if (!Object.keys(r.contractRefs).length) delete r.contractRefs; }
+    }
+  }
+  if (await persist(cards, subs)) {
+    S.sel = cards.length ? { type: 'card', id: cards[0].id } : null;
+    render();
+  }
+}
+
+// ------------------------------------------------------------ subsystem form
+function startEditSub(name, isNew) {
+  const s = !isNew && subCard(name);
+  S.draft = { type: 'sub', ...(s ? clone(s) : normSub({ name: name || '' })), origName: s ? s.name : null };
+  S.formErrors = [];
+  S.mode = 'edit';
+  S.snap = JSON.stringify(S.draft);
+  render();
+  if (!name) { const n = document.querySelector('[data-f="name"]'); if (n) n.focus(); }
+}
+
+function subForm() {
+  const d = S.draft;
+  const members = S.cards.filter((c) => c.subsystem === (d.origName || d.name));
+  const free = subsystemNames().filter((n) => !subCard(n) || n === d.origName);
+  let h = `<div class="form"><h2>${d.origName ? `Edit subsystem ${esc(d.origName)}` : 'New subsystem card'}</h2>`;
+  if (S.formErrors.length) h += `<div class="errors"><ul>${S.formErrors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>`;
+  h += '<div class="grid">'
+    + `<div class="span2"><label class="f">Subsystem name</label><input type="text" data-f="name" list="freesubs" value="${esc(d.name)}" placeholder="Printing Subsystem"><datalist id="freesubs">${free.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></div>`
+    + `<div class="span2"><label class="f">Collaboration graph reference</label><input type="text" data-f="graph" value="${esc(d.graph)}" placeholder="graphs/subsystems/printing.svg, or Figure 4-6"></div>`
+    + `<div class="span4"><label class="f">Classes</label><div class="hint" style="margin:0">${members.length ? members.map((m) => esc(m.name || m.id)).join(', ') : 'None yet.'} <span class="muted">(every card whose subsystem is this name${d.origName ? '; renaming the subsystem renames it on those cards too' : ''})</span></div></div>`
+    + `<div class="span4"><label class="f">Description</label><textarea data-f="description" placeholder="Responsible for …">${esc(d.description)}</textarea></div>`
+    + '</div>';
+  h += '<fieldset><legend>Contracts</legend>';
+  h += '<p class="hint">The contracts this subsystem offers to classes outside it, each delegated to the class inside that serves it.</p>';
+  const serverOpts = (cur) => `<option value="">server class…</option>` + members.map((m) => `<option value="${esc(m.id)}"${m.id === cur ? ' selected' : ''}>${esc(m.name || m.id)}</option>`).join('')
+    + (cur && !members.some((m) => m.id === cur) ? `<option value="${esc(cur)}" selected>${esc(nameOf(cur))} (not in this subsystem)</option>` : '');
+  d.contracts.forEach((k, i) => {
+    h += `<div class="s-row"><input type="number" min="1" data-sk="${i}" data-f="number" value="${esc(k.number)}" title="Contract number">`
+      + `<input type="text" data-sk="${i}" data-f="name" value="${esc(k.name)}" placeholder="Display itself">`
+      + `<select data-sk="${i}" data-f="server">${serverOpts(k.server)}</select>`
+      + `<button class="icon" data-act="rm-scontract" data-k="${i}" title="Delete">✕</button></div>`;
+  });
+  h += '<button data-act="add-scontract">+ Contract</button> <button data-act="suggest">Fill in from class contracts</button>';
+  h += `<p class="hint" id="suggest-note"></p></fieldset>`;
+  h += `<div class="actions"><button class="primary" data-act="save-sub">Save subsystem card</button><button data-act="cancel">Cancel</button></div></div>`;
+  return h;
+}
+
+// Subsystem contracts by the lecture's definition: contracts of classes inside
+// the subsystem that some class outside it uses.
+function suggestContracts() {
+  const d = S.draft;
+  const name = d.origName || d.name;
+  const members = S.cards.filter((c) => c.subsystem === name);
+  const inside = new Set(members.map((m) => m.id));
+  const outside = S.cards.filter((c) => !inside.has(c.id));
+  const added = [];
+  const undeclared = [];
+  for (const m of members) {
+    const ks = offered(m.id);
+    const callers = outside.filter((c) => c.responsibilities.some((r) => r.collaborators.includes(m.id)));
+    if (callers.length && !ks.length) undeclared.push(m.name || m.id);
+    for (const k of ks) {
+      const used = callers.some((c) => c.responsibilities.some((r) => r.collaborators.includes(m.id)
+        && (r.contractRefs && r.contractRefs[m.id] != null ? +r.contractRefs[m.id] === +k.number : ks.length === 1)));
+      if (used && !d.contracts.some((x) => +x.number === +k.number)) {
+        d.contracts.push({ number: +k.number, name: k.name || '', server: m.id });
+        added.push(k.number);
+      }
+    }
+  }
+  d.contracts.sort((a, b) => a.number - b.number);
+  renderMain();
+  const note = [added.length ? `Added contract(s) ${added.join(', ')}.` : 'Nothing new to add.'];
+  if (undeclared.length) note.push(`Used from outside but declare no contracts: ${undeclared.join(', ')}. Give those cards contracts first.`);
+  $('suggest-note').textContent = note.join(' ');
+}
+
+async function saveSub() {
+  const d = S.draft;
+  const errs = [];
+  d.name = d.name.trim();
+  if (!d.name) errs.push('Give the subsystem a name.');
+  else if (S.subsystems.some((s) => s.name === d.name && s.name !== d.origName)) errs.push(`There's already a subsystem card called ${d.name}.`);
+  const seen = new Set();
+  for (const k of d.contracts) {
+    const n = +k.number;
+    if (!Number.isInteger(n) || n < 1) { errs.push('Contract numbers must be whole numbers from 1 up.'); continue; }
+    if (seen.has(n)) errs.push(`Contract ${n} appears twice.`);
+    seen.add(n);
+  }
+  S.formErrors = errs;
+  if (errs.length) { renderMain(); $('main').scrollTop = 0; return; }
+  const sub = { name: d.name };
+  if (d.description.trim()) sub.description = d.description.trim();
+  if (d.graph.trim()) sub.graph = d.graph.trim();
+  sub.contracts = d.contracts.map((k) => ({ number: +k.number, name: k.name.trim(), server: k.server }));
+  const cards = clone(S.cards);
+  const subs = clone(S.subsystems);
+  if (d.origName && d.origName !== d.name) for (const c of cards) if (c.subsystem === d.origName) c.subsystem = d.name;
+  const i = subs.findIndex((s) => s.name === (d.origName || d.name));
+  if (i >= 0) subs[i] = sub; else subs.push(sub);
+  if (await persist(cards, subs)) {
+    S.mode = 'view'; S.draft = null; S.sel = { type: 'sub', name: sub.name };
+    render();
+  }
+}
+
+async function deleteSub(name) {
+  if (!confirm(`Delete the subsystem card for ${name}?\n\nThe class cards keep their subsystem; only this card goes.`)) return;
+  if (await persist(clone(S.cards), clone(S.subsystems).filter((s) => s.name !== name))) render();
+}
+
+// ------------------------------------------------------------ graph view
+function graphView() {
+  const names = [...new Set(S.cards.map((c) => c.subsystem).filter(Boolean))];
+  let h = `<div class="toolbar"><select id="graph-sub"><option value="">Whole system</option>${names.map((n) => `<option value="${esc(n)}"${n === S.graphSub ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>`
+    + '<button data-act="graph-refresh">Redraw</button><span class="muted" style="font-size:12px">Drawn by crc graph from the saved file</span><span class="spacer" style="flex:1"></span><button data-act="graph-close">Back to cards</button></div>';
+  const g = S.graph;
+  if (!g || g.loading) h += '<div class="center">Drawing…</div>';
+  else if (g.error) h += `<div class="errors">${esc(g.error)}</div>`;
+  else h += `<div class="graph-box">${g.svg}</div>`;
+  return h;
+}
+
+// ------------------------------------------------------------ render
+function renderMain() {
+  const main = $('main');
+  const top = main.scrollTop;
+  let h;
+  if (S.mode === 'graph') h = graphView();
+  else if (S.mode === 'edit') h = S.draft.type === 'card' ? cardForm() : subForm();
+  else if (S.sel && S.sel.type === 'card' && byId(S.sel.id)) h = cardView(byId(S.sel.id));
+  else if (S.sel && S.sel.type === 'sub') h = subView(S.sel.name);
+  else h = issuesHtml() + `<div class="center"><h2>No cards yet</h2><p>Each card gets a name, responsibilities and collaborators, and is saved straight to the JSON file above.</p><button class="primary" data-act="new-card">+ New class card</button></div>`;
+  main.innerHTML = h;
+  main.scrollTop = top;
+}
+
+function render() { renderSide(); renderMain(); }
+
+function select(sel) {
+  if (!leaveOk()) return;
+  S.mode = 'view'; S.draft = null; S.sel = sel;
+  $('main').scrollTop = 0;
+  render();
+}
+
+// ------------------------------------------------------------ events
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-act]');
+  if (!t || t.tagName === 'SELECT') return;
+  const act = t.dataset.act;
+  const d = S.draft;
+  const ri = t.dataset.r != null ? +t.dataset.r : null;
+  if (t.tagName === 'A') e.preventDefault();
+  switch (act) {
+    case 'sel-card': if (byId(t.dataset.id)) select({ type: 'card', id: t.dataset.id }); break;
+    case 'sel-sub': select({ type: 'sub', name: t.dataset.name }); break;
+    case 'new-card': if (leaveOk()) startEditCard(null); break;
+    case 'new-sub': if (leaveOk()) startEditSub(t.dataset.name || '', true); break;
+    case 'edit-card': startEditCard(byId(S.sel.id)); break;
+    case 'edit-sub': startEditSub(S.sel.name, false); break;
+    case 'del-card': deleteCard(S.sel.id); break;
+    case 'del-sub': deleteSub(S.sel.name); break;
+    case 'cancel': if (leaveOk()) { S.mode = 'view'; S.draft = null; render(); } break;
+    case 'save-card': saveCard(); break;
+    case 'save-sub': saveSub(); break;
+    case 'add-resp': {
+      const n = Math.max(0, ...d.responsibilities.map((r) => parseInt(String(r.id).replace(/\D/g, ''), 10) || 0)) + 1;
+      d.responsibilities.push({ id: `R${n}`, text: '', type: 'B', reqs: [], collaborators: [], _reqs: '' });
+      renderMain();
+      const inputs = document.querySelectorAll('[data-f="text"]');
+      inputs[inputs.length - 1].focus();
+      break;
+    }
+    case 'rm-resp': {
+      const r = d.responsibilities[ri];
+      if (r.text.trim() && !confirm(`Delete ${r.id}: "${r.text}"?`)) break;
+      d.responsibilities.splice(ri, 1);
+      for (const k of d.contracts) k.responsibilities = (k.responsibilities || []).filter((id) => id !== r.id);
+      renderMain(); break;
+    }
+    case 'up': case 'down': {
+      const j = act === 'up' ? ri - 1 : ri + 1;
+      const R = d.responsibilities;
+      [R[ri], R[j]] = [R[j], R[ri]];
+      renderMain(); break;
+    }
+    case 'rm-collab': {
+      const r = d.responsibilities[ri];
+      const [cid] = r.collaborators.splice(+t.dataset.j, 1);
+      if (r.contractRefs) delete r.contractRefs[cid];
+      renderMain(); break;
+    }
+    case 'rm-subclass': d.subclasses.splice(+t.dataset.i, 1); renderMain(); break;
+    case 'add-contract': d.contracts.push({ number: nextContractNumber(d.origId), name: '', responsibilities: [] }); renderMain(); break;
+    case 'rm-contract': d.contracts.splice(+t.dataset.k, 1); renderMain(); break;
+    case 'add-scontract': d.contracts.push({ number: Math.max(0, ...d.contracts.map((k) => +k.number || 0)) + 1, name: '', server: '' }); renderMain(); break;
+    case 'rm-scontract': d.contracts.splice(+t.dataset.k, 1); renderMain(); break;
+    case 'suggest': suggestContracts(); break;
+    case 'graph-of': if (leaveOk()) { S.graphSub = S.cards.some((c) => c.subsystem === t.dataset.name) ? t.dataset.name : ''; S.mode = 'graph'; S.draft = null; render(); loadGraph(); } break;
+    case 'graph-refresh': loadGraph(); break;
+    case 'graph-close': S.mode = 'view'; render(); break;
+    case 'recheck': runCheck(); break;
+    case 'close-issues': S.issues = null; render(); break;
+  }
+});
+
+function onField(e) {
+  const t = e.target;
+  if (t.id === 'search') { S.filter = t.value; renderSide(); return; }
+  if (t.id === 'graph-sub') { if (e.type === 'change') { S.graphSub = t.value; loadGraph(); } return; }
+  const d = S.draft;
+  if (!d) return;
+  const f = t.dataset.f;
+  if (t.dataset.act === 'add-collab' || t.dataset.act === 'add-subclass') {
+    if (e.type !== 'change' || !t.value) return;
+    if (t.dataset.act === 'add-collab') d.responsibilities[+t.dataset.r].collaborators.push(t.value);
+    else d.subclasses.push(t.value);
+    renderMain(); return;
+  }
+  if (t.dataset.cref) {
+    const r = d.responsibilities[+t.dataset.r];
+    r.contractRefs = r.contractRefs || {};
+    if (t.value) r.contractRefs[t.dataset.cref] = +t.value; else delete r.contractRefs[t.dataset.cref];
+    return;
+  }
+  if (t.dataset.rid != null) { // contract membership checkbox
+    const k = d.contracts[+t.dataset.k];
+    k.responsibilities = (k.responsibilities || []).filter((id) => id !== t.dataset.rid);
+    if (t.checked) {
+      for (const other of d.contracts) other.responsibilities = (other.responsibilities || []).filter((id) => id !== t.dataset.rid); // one contract each
+      k.responsibilities.push(t.dataset.rid);
+      renderMain();
+    }
+    return;
+  }
+  if (t.dataset.r != null) {
+    const r = d.responsibilities[+t.dataset.r];
+    if (f === 'reqs') r._reqs = t.value;
+    else if (f === 'type') { r.type = t.value; t.closest('.row').querySelector('[data-f="text"]').placeholder = r.type === 'K' ? 'Knows …' : 'Verb phrase: what it does'; }
+    else r[f] = t.value;
+    return;
+  }
+  if (t.dataset.k != null) { d.contracts[+t.dataset.k][f] = t.value; return; }
+  if (t.dataset.sk != null) { d.contracts[+t.dataset.sk][f] = t.value; return; }
+  if (!f) return;
+  if (f === 'id') S.idTouched = true;
+  d[f] = f === 'superclass' ? (t.value || null) : t.value;
+  if (f === 'superclass' && t.value) { d.subclasses = d.subclasses.filter((s) => s !== t.value); if (e.type === 'change') renderMain(); }
+  if (f === 'name' && d.type === 'card' && !S.idTouched) {
+    d.id = toId(t.value);
+    const idBox = document.querySelector('[data-f="id"]');
+    if (idBox) idBox.value = d.id;
+  }
+}
+document.addEventListener('input', onField);
+document.addEventListener('change', (e) => { if (e.target.tagName === 'SELECT' || e.target.type === 'checkbox') onField(e); });
+
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    if (S.mode === 'edit') (S.draft.type === 'card' ? saveCard : saveSub)();
+  }
+});
+window.addEventListener('beforeunload', (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });
+
+$('btn-check').onclick = () => runCheck();
+$('btn-graph').onclick = () => { if (!leaveOk()) return; S.mode = 'graph'; S.draft = null; render(); loadGraph(); };
+
+load();
+</script>
+</body>
+</html>

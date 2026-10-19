@@ -1,0 +1,12 @@
+{
+  "name": "crc-cards",
+  "version": "0.1.0",
+  "description": "CRC cards as data: validate them, graph them, walk scenarios through them",
+  "private": true,
+  "bin": { "crc": "bin/crc.js" },
+  "main": "src/lib.js",
+  "files": ["bin", "src", "schema", "templates", "ui"],
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}
