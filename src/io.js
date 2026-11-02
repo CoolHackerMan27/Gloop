@@ -67,17 +67,24 @@ function loadCards(target) {
     notes.push(...lib.resolveNames(cards));
     return { cards, walkthroughs: walkthroughs.length ? walkthroughs : null, notes };
   }
-  const text = fs.readFileSync(target, 'utf8');
-  if (/\.md$/i.test(target)) {
+  return parseCards(fs.readFileSync(target, 'utf8'), target);
+}
+
+// One file's text: Markdown when `name` ends in .md, JSON otherwise. A {"cards": ...}
+// object may also carry subsystem cards, returned as `subsystems` when present.
+function parseCards(text, name = '') {
+  if (/\.md$/i.test(name)) {
     const { cards, notes } = lib.parseMarkdownCards(text);
     return { cards, walkthroughs: null, notes };
   }
   const data = JSON.parse(text);
   if (Array.isArray(data)) return { cards: data, walkthroughs: null, notes: [] };
-  if (data && Array.isArray(data.cards)) return { cards: data.cards, walkthroughs: data.walkthroughs || null, notes: [] };
+  if (data && Array.isArray(data.cards)) {
+    return { cards: data.cards, walkthroughs: data.walkthroughs || null, notes: [], ...(Array.isArray(data.subsystems) ? { subsystems: data.subsystems } : {}) };
+  }
   if (data && data.id && data.responsibilities) return { cards: [data], walkthroughs: null, notes: [] }; // one card per file
   if (data && Array.isArray(data.walkthroughs)) return { cards: [], walkthroughs: data.walkthroughs, notes: [] };
-  throw new Error(`${target}: expected an array of cards, {"cards": [...]}, or a single card object.`);
+  throw new Error(`${name}: expected an array of cards, {"cards": [...]}, or a single card object.`);
 }
 
 function loadWalkthroughs(file) {
@@ -110,4 +117,4 @@ function writeFile(file, text) {
   fs.writeFileSync(file, text);
 }
 
-module.exports = { CONFIG_NAME, DEFAULT_CONFIG, loadConfig, loadCards, loadWalkthroughs, loadRequirements, validateOptions, writeFile };
+module.exports = { CONFIG_NAME, DEFAULT_CONFIG, loadConfig, loadCards, parseCards, loadWalkthroughs, loadRequirements, validateOptions, writeFile };

@@ -2,25 +2,31 @@
 
 A little local app for making CRC cards that actually checks your work.
 
-You fill out cards in a browser form, it shows each one laid out like a real index card, and with one click it tells you what's broken (missing collaborators, uncovered requirements, overstuffed cards, contract mixups) and draws the collaboration graph in the course notation. Everything saves to a plain JSON file, so there's also a CLI if you'd rather script it or hand-edit.
+You fill out cards in a browser form (or pull them in from a file you already have), it shows each one laid out like a real index card, and with one click it tells you what's broken (missing collaborators, uncovered requirements, overstuffed cards, contract mixups) and draws the collaboration graph in the course notation. Everything saves to a plain JSON file, so there's also a CLI if you'd rather script it or hand-edit.
 
 ## What you need
 
-- **Python 3.8+** for the UI. Standard library only, so no `pip install` and no Tkinter.
-- **Node 20+** for the Check and Graph buttons, and for the CLI. The UI still works without Node; those two buttons will just tell you it's missing.
+Just **Node 20+**. No dependencies, nothing to `npm install`.
 
 ## Fire up the UI
 
 ```sh
 git clone https://github.com/CoolHackerMan27/Gloop.git
-python3 Gloop/ui/app.py cards.json
+cd Gloop
+npm link          # puts `crc` on your PATH; undo with `npm unlink -g crc-cards`
 ```
 
-That opens http://127.0.0.1:8615/ in your browser. If `cards.json` doesn't exist yet, it gets created the first time you save a card.
+Then, from wherever you keep your cards:
+
+```sh
+crc ui cards.json
+```
+
+That opens http://127.0.0.1:8615/ in your browser. If `cards.json` doesn't exist yet, it gets created the first time you save (or import) a card.
 
 You can leave the path off. Then it uses the `cards` file from the nearest `crc.config.json`, or `./cards.json` if there isn't one. Other flags: `--port n` picks a different port (if 8615 is taken it grabs a free one anyway) and `--no-open` skips opening the browser.
 
-> The UI only edits JSON. Got Markdown cards? Run `crc convert cards.md cards.json` first.
+The UI edits a JSON file, but you can bring in Markdown or plain-text cards with the Import button (more on that below).
 
 ## A tour of the UI
 
@@ -52,6 +58,21 @@ Hit **+ New** or **Edit** and you get a form instead of raw JSON:
 
 When you save, it catches the obvious mistakes before writing anything: a missing name, a bad or duplicate id, or a contract number that another card already uses.
 
+### Importing cards
+
+Hit **Import** (or just drag a file onto the window) to pull in cards from a `.json` file, a Markdown `.md` file, or the plain hand-written `.txt` format. It works like copying files into a folder:
+
+- Cards you don't have yet get added.
+- Cards that are exactly the same as yours are left alone.
+- For each card whose id you already have but whose contents differ, it stops and asks, showing you exactly what each option would change:
+  - **Merge** keeps both: anything the imported card has that yours doesn't gets added (new responsibilities, requirements, collaborators, contracts), and blank fields get filled in. It's greyed out when the two versions actually disagree, like two different purposes or the same responsibility reworded, the same way git won't auto-merge two edits to the same line. The dialog lists what's in the way.
+  - **Overwrite** replaces your card with the imported one.
+  - **Skip** keeps yours and ignores the imported one.
+- Tick **Do this for the remaining conflicts** to stop being asked. If you picked Merge, it'll still stop on any card that can't be merged automatically.
+- **Cancel import** (or `Esc`) bails out and nothing changes. Nothing gets saved until you've answered every conflict.
+
+Subsystem cards in an imported JSON file get the same treatment. Once the import's saved, it runs Check for you, since imports are a classic way to end up with collaborators pointing at cards that don't exist.
+
 ### Subsystem cards
 
 These are the subsystem cards from the lecture. Each one has a name, a description, a reference to its graph, and the contracts it offers to classes outside it, each one handed off to a "server" class inside. Its class list fills itself in from whichever cards have that subsystem.
@@ -79,16 +100,7 @@ The **Graph** button draws the collaboration graph in the course notation: boxes
 
 ## The CLI
 
-Everything the UI does under the hood comes from `crc`, and the CLI can do a bunch more: Markdown cards, requirement traceability, scenario walkthroughs, diffs, draw.io export, and so on.
-
-### Install
-
-```sh
-cd Gloop
-npm link          # puts `crc` on your PATH; undo with `npm unlink -g crc-cards`
-```
-
-Or skip the install and run `node path/to/Gloop/bin/crc.js <command>`.
+The UI is built on the same code as `crc`, and the CLI can do a bunch more: Markdown cards, requirement traceability, scenario walkthroughs, diffs, draw.io export, and so on. If you ran `npm link` above, it's already on your PATH. Otherwise run `node path/to/Gloop/bin/crc.js <command>`.
 
 ### Quick start
 
@@ -105,6 +117,7 @@ crc build              # everything into out/
 
 | Command                                                                                            | What it does                                                                                                                                                                                                               |
 | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crc ui [cards.json] [--port n] [--no-open]`                                                       | The card editor in your browser (everything in the tour above).                                                                                                                                                            |
 | `crc init [dir]`                                                                                   | Start a project. Also sets up VS Code autocomplete for `cards*.json`.                                                                                                                                                      |
 | `crc check [cards] [--watch] [--json]`                                                             | Validate. Exit 1 on errors.                                                                                                                                                                                                |
 | `crc build [cards] [--out dir]`                                                                    | `cards.md`, `contracts.md`, `validation.txt`, `traceability.md`, `scenarios.md`, and `graphs/`: `collaboration.svg`, one SVG per subsystem in `graphs/subsystems/`, `collaboration.drawio`, `.mmd`, `.dot`, `viewer.html`. |
@@ -269,8 +282,9 @@ Each step has to name a responsibility that's on the `to` card, and `from` has t
 
 ### What's where
 
-- `ui/`: the card editor. `app.py` is a tiny local server that serves `index.html` and shells out to `bin/crc.js` for Check and Graph.
-- `src/lib.js`: all the checks and renderers as pure functions (no filesystem). It's one file on purpose so it can be embedded elsewhere; the course's agent pipeline inlines it.
+- `ui/index.html`: the card editor page. The whole front end lives in this one file.
+- `src/ui.js`: the little local server behind `crc ui`. It reads and saves the cards file and answers Check, Graph and Import by calling `lib.js` directly.
+- `src/lib.js`: all the checks, renderers and the import merge as pure functions (no filesystem). It's one file on purpose so it can be embedded elsewhere; the course's agent pipeline inlines it.
 - `src/io.js`: config and file loading.
 - `src/viewer.js`: the interactive graph page.
 - `bin/crc.js`: the CLI.

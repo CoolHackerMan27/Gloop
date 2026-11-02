@@ -1536,6 +1536,110 @@ function formatDiff(d) {
   return L.join('\n');
 }
 
+// ---------------------------------------------------------------- merge
+
+// Two-way merge for importing a card whose id is already taken. There's no common
+// ancestor to compare against, so (like git without a merge base) whatever only one
+// side has is kept, whatever both have is kept once, and two different values for the
+// same thing are a conflict. Unset gives way to set: an empty field, the default kind
+// (class) and the default subsystem (Unassigned) take the other side's value.
+const MERGE_DEFAULTS = { kind: 'class', subsystem: 'Unassigned' };
+const isUnset = (field, v) => v == null || String(v).trim() === '' || v === MERGE_DEFAULTS[field];
+const union = (a, b) => [...new Set([...(a || []), ...(b || [])])];
+const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+const respKey = (text) => String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+function mergeValue(label, field, ours, theirs, conflicts) {
+  if (ours === theirs || isUnset(field, theirs)) return ours;
+  if (isUnset(field, ours)) return theirs;
+  conflicts.push(`${label}: "${ours}" here, "${theirs}" in the import`);
+  return ours;
+}
+
+function mergeResponsibility(ra, rb, conflicts) {
+  if (ra.type && rb.type && ra.type !== rb.type) conflicts.push(`${ra.id} is ${ra.type} here, ${rb.type} in the import`);
+  ra.type = ra.type || rb.type;
+  const qa = expandReqRefs(ra.reqs || []);
+  const qb = expandReqRefs(rb.reqs || []);
+  if (!sameSet(qa, qb)) ra.reqs = union(qa, qb).sort(reqSort);
+  ra.collaborators = union(ra.collaborators, rb.collaborators);
+  for (const [cid, n] of Object.entries(rb.contractRefs || {})) {
+    const mine = (ra.contractRefs || {})[cid];
+    if (mine == null) ra.contractRefs = { ...ra.contractRefs, [cid]: n };
+    else if (+mine !== +n) conflicts.push(`${ra.id} uses ${cid}'s contract ${mine} here, contract ${n} in the import`);
+  }
+}
+
+// Returns { card, conflicts }: the merged card, or null with the reasons it can't be merged.
+// Responsibilities match by text first, since Markdown numbers rows by position, then by id;
+// an incoming row whose id belongs to a row that moved gets the next free id.
+function mergeCard(ours, theirs) {
+  const conflicts = [];
+  const out = JSON.parse(JSON.stringify(ours));
+  const labels = { name: 'Name', kind: 'Kind', subsystem: 'Subsystem', purpose: 'Purpose', superclass: 'Superclass' };
+  for (const [f, label] of Object.entries(labels)) out[f] = mergeValue(label, f, ours[f], theirs[f], conflicts);
+  out.subclasses = union(ours.subclasses, theirs.subclasses);
+
+  const resps = out.responsibilities = out.responsibilities || [];
+  const idMap = new Map(); // incoming responsibility id -> its id in the merged card
+  const matched = new Set();
+  const unmatched = [];
+  for (const rb of theirs.responsibilities || []) {
+    const i = resps.findIndex((ra, j) => !matched.has(j) && respKey(ra.text) === respKey(rb.text));
+    if (i < 0) { unmatched.push(rb); continue; }
+    matched.add(i);
+    idMap.set(rb.id, resps[i].id);
+    mergeResponsibility(resps[i], rb, conflicts);
+  }
+  const ids = new Set(resps.map((r) => r.id));
+  for (const rb of unmatched) {
+    const j = resps.findIndex((ra) => ra.id === rb.id);
+    if (j >= 0 && !matched.has(j)) { conflicts.push(`${rb.id}: "${resps[j].text}" here, "${rb.text}" in the import`); continue; }
+    let id = rb.id;
+    for (let n = resps.length + 1; ids.has(id); n++) id = `R${n}`;
+    ids.add(id);
+    idMap.set(rb.id, id);
+    resps.push({ ...JSON.parse(JSON.stringify(rb)), id });
+  }
+
+  // Contracts match by number; a responsibility still belongs to at most one.
+  const contracts = JSON.parse(JSON.stringify(ours.contracts || []));
+  for (const kb of theirs.contracts || []) {
+    let ka = contracts.find((k) => +k.number === +kb.number);
+    if (ka) {
+      ka.name = mergeValue(`Contract ${ka.number}'s name`, 'name', ka.name, kb.name, conflicts);
+      ka.description = mergeValue(`Contract ${ka.number}'s description`, 'description', ka.description, kb.description, conflicts);
+    } else {
+      ka = { ...JSON.parse(JSON.stringify(kb)), responsibilities: [] };
+      contracts.push(ka);
+    }
+    ka.responsibilities = ka.responsibilities || [];
+    for (const rid of (kb.responsibilities || []).map((x) => idMap.get(x)).filter(Boolean)) {
+      const other = contracts.find((k) => k !== ka && (k.responsibilities || []).includes(rid));
+      if (other) conflicts.push(`${rid} is in contract ${other.number} here, contract ${ka.number} in the import`);
+      else if (!ka.responsibilities.includes(rid)) ka.responsibilities.push(rid);
+    }
+  }
+  if (contracts.length) out.contracts = contracts;
+  return { card: conflicts.length ? null : out, conflicts };
+}
+
+// The same for subsystem cards (name, description, graph, contracts with a server class).
+function mergeSubsystem(ours, theirs) {
+  const conflicts = [];
+  const out = JSON.parse(JSON.stringify(ours));
+  out.description = mergeValue('Description', 'description', ours.description, theirs.description, conflicts);
+  out.graph = mergeValue('Graph', 'graph', ours.graph, theirs.graph, conflicts);
+  out.contracts = out.contracts || [];
+  for (const kb of theirs.contracts || []) {
+    const ka = out.contracts.find((k) => +k.number === +kb.number);
+    if (!ka) { out.contracts.push(JSON.parse(JSON.stringify(kb))); continue; }
+    ka.name = mergeValue(`Contract ${ka.number}'s name`, 'name', ka.name, kb.name, conflicts);
+    ka.server = mergeValue(`Contract ${ka.number}'s server`, 'server', ka.server, kb.server, conflicts);
+  }
+  return { subsystem: conflicts.length ? null : out, conflicts };
+}
+
 // ---------------------------------------------------------------- comparison
 
 function compareMarkdown(sets, reqIds) {
@@ -1569,7 +1673,7 @@ if (typeof module !== 'undefined' && module.exports) {
     collaborationDot, collaborationDrawio, collaborationSvg, collaborationLayout, contractsMarkdown, resolveContracts, contractLabels,
     importLineCards, importTableCards, parseMarkdownCards, normalizeCards, resolveNames, toIdentifier,
     setRequirementSyntax, DEFAULT_REQ_SYNTAX, DEFAULT_ATOMIC, wordCount, isCompound, behaviorVerbs,
-    compareMarkdown, diffCards, formatDiff,
+    compareMarkdown, diffCards, formatDiff, mergeCard, mergeSubsystem,
     cardsToCompact, responsibilitiesCiting, walkthroughDependencies, walkthroughAffected,
   };
 }

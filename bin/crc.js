@@ -12,9 +12,12 @@ const { pathToFileURL } = require('url');
 const lib = require('../src/lib.js');
 const io = require('../src/io.js');
 const { viewerHtml } = require('../src/viewer.js');
+const ui = require('../src/ui.js');
 
 const USAGE = `crc — CRC cards as data: check them, graph them, keep them honest.
 
+  crc ui [cards.json] [--port n] [--no-open]
+                                 the card editor in your browser: make, import, check and graph cards
   crc init [dir]                 start a project (config, example cards, requirements, scenario)
   crc check [cards] [--watch] [--json]
                                  validate; exit 1 on errors
@@ -200,6 +203,29 @@ const commands = {
       console.error(`live viewer at ${url} — edit your cards and the graph redraws. Ctrl+C to stop.`);
       if (!flags['no-open']) openInBrowser(url);
     });
+  },
+
+  ui({ pos, flags }) {
+    const file = pos[0] ? path.resolve(pos[0]) : ui.defaultCardsPath();
+    if (/\.md$/i.test(file)) {
+      throw new Error(`the UI edits JSON cards. Open a JSON file and use Import, or convert first:\n  crc convert ${pos[0]} ${pos[0].replace(/\.md$/i, '.json')}`);
+    }
+    if (fs.existsSync(file)) {
+      try { JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { throw new Error(`${file} isn't valid JSON: ${e.message}`); }
+    }
+    io.loadConfig(path.dirname(file));
+    const server = ui.createUiServer(file);
+    server.on('error', (e) => {
+      if (e.code === 'EADDRINUSE' && !server.retried) { server.retried = true; server.listen(0, '127.0.0.1'); return; } // port taken: pick a free one
+      console.error(`error: ${e.message}`);
+      process.exit(2);
+    });
+    server.on('listening', () => {
+      const url = `http://127.0.0.1:${server.address().port}/`;
+      console.error(`CRC cards UI at ${url}\nediting ${file}${fs.existsSync(file) ? '' : ' (new file)'}\nCtrl+C to stop.`);
+      if (!flags['no-open']) openInBrowser(url);
+    });
+    server.listen(flags.port ? +flags.port : 8615, '127.0.0.1');
   },
 
   convert({ pos, flags }) {

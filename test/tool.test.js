@@ -277,3 +277,64 @@ test('wt-private-call: calling a responsibility outside every contract is flagge
   const v = lib.validate(cards, { walkthroughs: [ok, priv] });
   assert.deepEqual(v.warnings.filter((w) => w.code === 'wt-private-call').map((w) => w.scenario), ['S2']);
 });
+
+test('mergeCard: keeps what only one side has, matches responsibilities by text, conflicts on real differences', () => {
+  const ours = card('Loan', [R('R1', 'Creates a loan', 'B', ['LND-01'], ['Member']), R('R2', 'Knows its due date', 'K', ['LND-02'])], { purpose: '' });
+  // Markdown numbers rows by position: the due date moved up to R1 and a new row took R3.
+  const theirs = card('Loan', [R('R1', 'Knows its due date', 'K', ['LND-02', 'LND-04']), R('R2', 'creates a  loan', 'B', ['LND-01'], ['Copy']), R('R3', 'Knows the copy it lends', 'K', ['LND-01'])], { kind: 'actor' });
+  const m = lib.mergeCard(ours, theirs);
+  assert.deepEqual(m.conflicts, []);
+  assert.equal(m.card.purpose, 'The purpose of Loan.', 'an empty field takes the other side');
+  assert.equal(m.card.kind, 'actor', 'the default kind gives way');
+  assert.deepEqual(m.card.responsibilities.map((r) => [r.id, r.text, r.reqs, r.collaborators]), [
+    ['R1', 'Creates a loan', ['LND-01'], ['Member', 'Copy']],
+    ['R2', 'Knows its due date', ['LND-02', 'LND-04'], []],
+    ['R3', 'Knows the copy it lends', ['LND-01'], []],
+  ]);
+  const clash = lib.mergeCard({ ...ours, purpose: 'One book lent to one member.' }, card('Loan', [R('R2', 'Knows when it was returned', 'K', [])], { purpose: 'Something else.' }));
+  assert.equal(clash.card, null);
+  assert.deepEqual(clash.conflicts.map((c) => c.split(':')[0]), ['Purpose', 'R2']);
+});
+
+test('mergeCard: contracts merge by number, follow renumbered responsibilities, and stay one per responsibility', () => {
+  const ours = card('Loan', [R('R1', 'Creates a loan', 'B', []), R('R2', 'Knows its due date', 'K', [])], { contracts: [{ number: 1, name: 'Lend a book', responsibilities: ['R1'] }] });
+  const theirs = card('Loan', [R('R1', 'Knows its due date', 'K', []), R('R2', 'Renews a loan', 'B', [])], {
+    contracts: [{ number: 1, name: '', responsibilities: ['R1'] }, { number: 2, name: 'Renew', responsibilities: ['R2'] }],
+  });
+  const m = lib.mergeCard(ours, theirs);
+  assert.deepEqual(m.conflicts, []);
+  assert.deepEqual(m.card.responsibilities.map((r) => `${r.id} ${r.text}`), ['R1 Creates a loan', 'R2 Knows its due date', 'R3 Renews a loan']);
+  assert.deepEqual(m.card.contracts.map((k) => [k.number, k.name, k.responsibilities]), [[1, 'Lend a book', ['R1', 'R2']], [2, 'Renew', ['R3']]]);
+  const split = lib.mergeCard(ours, card('Loan', [R('R1', 'Creates a loan', 'B', [])], { contracts: [{ number: 2, name: 'Other', responsibilities: ['R1'] }] }));
+  assert.equal(split.card, null);
+  assert.match(split.conflicts[0], /R1 is in contract 1 here, contract 2 in the import/);
+});
+
+test('crc ui server: import sorts cards into new, same and conflict; stale saves and other sites are refused', async (t) => {
+  const ui = require('../src/ui.js');
+  const file = path.join(tmp(), 'cards.json');
+  fs.writeFileSync(file, JSON.stringify({ cards: [card('Loan', [R('R1', 'Creates a loan', 'B', [])]), card('Member', [R('R1', 'Knows its name', 'K', [])])], walkthroughs: [] }));
+  const server = ui.createUiServer(file);
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (url, body, headers = {}) => fetch(base + url, { method: 'POST', body: JSON.stringify(body), headers });
+  const project = await (await fetch(`${base}/api/project`)).json();
+
+  const text = JSON.stringify({ cards: [
+    card('Loan', [R('R1', 'Creates a loan', 'B', [], ['Member'])]),
+    card('Member', [R('R1', 'Knows its name', 'K', [])]),
+    card('Copy', [R('R1', 'Knows its barcode', 'K', [])]),
+  ] });
+  const imp = await (await post('/api/import', { name: 'more.json', text, cards: project.cards, subsystems: project.subsystems })).json();
+  assert.deepEqual(imp.cards.map((x) => [x.id, x.status]), [['Loan', 'conflict'], ['Member', 'same'], ['Copy', 'new']]);
+  assert.deepEqual(imp.cards[0].mergeChanges, ['~ R1: collaborators +Member']);
+  assert.match((await (await post('/api/import', { name: 'notes.pdf', text: '' })).json()).error, /\.json, \.md or \.txt/);
+
+  assert.equal((await post('/api/save', { cards: [], subsystems: [], mtime: project.mtime - 1000 })).status, 409);
+  assert.equal((await post('/api/save', { cards: project.cards, subsystems: [], mtime: project.mtime })).status, 200);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).walkthroughs, [], 'other keys in the file are kept');
+  assert.equal((await post('/api/save', { cards: [], force: true }, { origin: 'http://evil.example' })).status, 403);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).cards.length, 2);
+  assert.ok(Array.isArray((await (await post('/api/check', {})).json()).errors));
+});

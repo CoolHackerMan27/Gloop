@@ -131,6 +131,21 @@
   .center { text-align: center; padding: 60px 20px; color: var(--muted); }
   .center h2 { color: var(--text); font-weight: 600; }
   kbd { background: var(--panel2); border: 1px solid var(--border2); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+
+  /* import */
+  body.dropping main { outline: 2px dashed var(--accent); outline-offset: -10px; }
+  #modal { position: fixed; inset: 0; z-index: 10; display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px; overflow-y: auto; background: rgba(0, 0, 0, 0.55); }
+  #modal:empty { display: none; }
+  .dialog { width: 100%; max-width: 640px; background: var(--panel); border: 1px solid var(--border2); border-radius: 10px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+  .dialog h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+  .dialog > p { margin: 0 0 12px; }
+  .choice { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: start; padding: 10px 0; border-top: 1px solid var(--border); }
+  .choice button { width: 100%; }
+  .changes { list-style: none; margin: 6px 0 0; padding: 0; font: 12px/1.5 ui-monospace, Menlo, monospace; max-height: 140px; overflow-y: auto; }
+  .changes li { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .changes .add { color: var(--ok); } .changes .del { color: var(--err); } .changes .mod { color: var(--warn); } .changes .clash { color: var(--err); }
+  .dialog .all { display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); cursor: pointer; }
+  .dialog .all + .hint { margin-left: 22px; }
 </style>
 </head>
 <body>
@@ -138,13 +153,16 @@
   <h1>CRC Cards</h1>
   <span class="path" id="path"></span>
   <span id="status"></span>
+  <button id="btn-import" title="Add cards from a .json, .md or .txt file (or drop one on the window)">Import</button>
   <button id="btn-check" title="Run crc check on the saved file">Check</button>
   <button id="btn-graph" title="Collaboration graph of the saved file">Graph</button>
+  <input type="file" id="import-file" accept=".json,.md,.txt" hidden>
 </header>
 <div class="layout">
   <aside id="side"></aside>
   <main id="main"></main>
 </div>
+<div id="modal"></div>
 
 <script>
 'use strict';
@@ -154,7 +172,7 @@ const S = {
   sel: null,          // { type: 'card', id } | { type: 'sub', name }
   mode: 'view',       // 'view' | 'edit' | 'graph'
   draft: null, snap: '', idTouched: false, formErrors: [],
-  issues: null, graphSub: '', graph: null, filter: '',
+  issues: null, graphSub: '', graph: null, filter: '', importing: false,
 };
 
 // ------------------------------------------------------------ helpers
@@ -680,6 +698,106 @@ function graphView() {
   return h;
 }
 
+// ------------------------------------------------------------ import
+// Like copying files into a folder: new cards are added, identical ones are left alone,
+// and each clash asks merge / overwrite / skip. Nothing is saved until every clash is answered.
+let answer = null; // resolves the open clash dialog
+
+async function importFile(file) {
+  if (!file || S.importing || !leaveOk()) return;
+  S.importing = true;
+  try {
+    if (S.mode === 'edit') { S.mode = 'view'; S.draft = null; render(); }
+    setStatus(`Reading ${file.name}…`);
+    const r = await fetch('/api/import', { method: 'POST', body: JSON.stringify({ name: file.name, text: await file.text(), cards: S.cards, subsystems: S.subsystems }) });
+    const j = await r.json();
+    if (j.error) { setStatus(`Import failed: ${j.error}`, 'err'); return; }
+    const items = [...j.cards.map((x) => ({ ...x, type: 'card' })), ...j.subsystems.map((x) => ({ ...x, type: 'sub' }))];
+    if (!items.length) { setStatus(`No cards found in ${file.name}`, 'err'); return; }
+
+    const clashes = items.filter((x) => x.status === 'conflict');
+    let all = null; // the choice to repeat once "do this for all" is ticked
+    for (let i = 0; i < clashes.length; i++) {
+      const x = clashes[i];
+      // "Merge all" still asks about the ones that can't merge, like git stopping on a conflict.
+      if (all && (all !== 'merge' || x.merged)) { x.choice = all; continue; }
+      const pick = await askClash(x, i, clashes, file.name);
+      if (pick.choice === 'cancel') { setStatus('Import cancelled, nothing changed'); return; }
+      x.choice = pick.choice;
+      if (pick.all) all = pick.choice;
+    }
+
+    const cards = clone(S.cards);
+    const subs = clone(S.subsystems);
+    const count = { new: 0, merge: 0, overwrite: 0, skip: 0, same: 0 };
+    for (const x of items) {
+      const how = x.status === 'conflict' ? x.choice : x.status;
+      x.how = how;
+      count[how]++;
+      if (how === 'same' || how === 'skip') continue;
+      const value = how === 'merge' ? x.merged : x.incoming;
+      if (x.type === 'card') {
+        const c = normCard(value);
+        const k = cards.findIndex((y) => y.id === c.id);
+        if (k >= 0) cards[k] = c; else cards.push(c);
+      } else {
+        const s = normSub(value);
+        const k = subs.findIndex((y) => y.name === s.name);
+        if (k >= 0) subs[k] = s; else subs.push(s);
+      }
+    }
+    const summary = [count.new && `${count.new} new`, count.merge && `${count.merge} merged`, count.overwrite && `${count.overwrite} overwritten`,
+      count.skip && `${count.skip} skipped`, count.same && `${count.same} already here`].filter(Boolean).join(', ');
+    if (!count.new && !count.merge && !count.overwrite) { setStatus(`Nothing imported from ${file.name}: ${summary}`); return; }
+    if (!(await persist(cards, subs))) return;
+
+    const first = items.find((x) => x.type === 'card' && ['new', 'merge', 'overwrite'].includes(x.how));
+    if (first) { S.mode = 'view'; S.sel = { type: 'card', id: first.id }; }
+    render();
+    setStatus(`Imported ${file.name}: ${summary}${j.walkthroughs ? ' (its walkthroughs weren\'t imported)' : ''}`);
+    if (!S.issues) runCheck(true); // imports are where dangling names come from, so show them
+  } finally {
+    S.importing = false;
+  }
+}
+
+function askClash(x, i, clashes, source) {
+  const left = clashes.length - i - 1;
+  const stuck = clashes.slice(i + 1).filter((y) => !y.merged).length;
+  const what = x.type === 'card' ? 'card' : 'subsystem card';
+  const cls = (l) => ({ '+': 'add', '-': 'del', '~': 'mod' }[l[0]] || '');
+  const list = (lines, empty) => (lines.length ? `<ul class="changes">${lines.map((l) => `<li class="${cls(l)}">${esc(l)}</li>`).join('')}</ul>` : `<div class="hint">${empty}</div>`);
+  let h = `<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="clash-title">`
+    + `<h2 id="clash-title">${esc(x.name)} already exists</h2>`
+    + `<p class="muted">Conflict ${i + 1} of ${clashes.length} importing ${esc(source)}: this file already has a ${what} ${x.type === 'card' ? `with the id ${esc(x.id)}` : 'with that name'}.</p>`;
+  h += `<div class="choice"><button class="primary" data-act="imp-merge"${x.merged ? '' : ' disabled'}>Merge</button><div>`
+    + (x.merged
+      ? `<strong>Keep both.</strong> Adds what the imported one has that yours doesn't.${list(x.mergeChanges, `Nothing new: yours already has everything in the imported one.`)}`
+      : `<strong>Can't merge automatically.</strong> The two versions disagree:<ul class="changes">${x.conflicts.map((c) => `<li class="clash">${esc(c)}</li>`).join('')}</ul>`)
+    + '</div></div>';
+  h += `<div class="choice"><button data-act="imp-overwrite">Overwrite</button><div><strong>Use the imported one.</strong> Replaces your ${what}:${list(x.overwriteChanges, 'Only the order of things differs.')}</div></div>`;
+  h += `<div class="choice"><button data-act="imp-skip">Skip</button><div><strong>Keep yours.</strong> The imported ${what} is left out.</div></div>`;
+  if (left) {
+    const note = left === 1 ? 'It can\'t merge automatically, so picking Merge will still ask about it.'
+      : `${stuck === left ? 'None of them can' : `${stuck} of them can't`} merge automatically, so picking Merge will still ask about ${stuck > 1 ? 'those' : 'that one'}.`;
+    h += `<label class="all"><input type="checkbox" id="imp-all"> Do this for the remaining ${left} conflict${left > 1 ? 's' : ''}</label>`
+      + (stuck ? `<p class="hint">${note}</p>` : '');
+  }
+  h += `<div class="actions"><span class="spacer"></span><button data-act="imp-cancel">Cancel import</button></div></div>`;
+  $('modal').innerHTML = h;
+  (document.querySelector('#modal [data-act="imp-merge"]:not([disabled])') || document.querySelector('#modal [data-act="imp-overwrite"]')).focus();
+  return new Promise((resolve) => { answer = resolve; });
+}
+
+function closeClash(choice) {
+  const box = $('imp-all');
+  const all = !!(box && box.checked);
+  const done = answer;
+  answer = null;
+  $('modal').innerHTML = '';
+  if (done) done({ choice, all });
+}
+
 // ------------------------------------------------------------ render
 function renderMain() {
   const main = $('main');
@@ -689,7 +807,7 @@ function renderMain() {
   else if (S.mode === 'edit') h = S.draft.type === 'card' ? cardForm() : subForm();
   else if (S.sel && S.sel.type === 'card' && byId(S.sel.id)) h = cardView(byId(S.sel.id));
   else if (S.sel && S.sel.type === 'sub') h = subView(S.sel.name);
-  else h = issuesHtml() + `<div class="center"><h2>No cards yet</h2><p>Each card gets a name, responsibilities and collaborators, and is saved straight to the JSON file above.</p><button class="primary" data-act="new-card">+ New class card</button></div>`;
+  else h = issuesHtml() + `<div class="center"><h2>No cards yet</h2><p>Each card gets a name, responsibilities and collaborators, and is saved straight to the JSON file above.</p><button class="primary" data-act="new-card">+ New class card</button> <button data-act="import">Import cards</button></div>`;
   main.innerHTML = h;
   main.scrollTop = top;
 }
@@ -761,6 +879,8 @@ document.addEventListener('click', (e) => {
     case 'graph-close': S.mode = 'view'; render(); break;
     case 'recheck': runCheck(); break;
     case 'close-issues': S.issues = null; render(); break;
+    case 'import': $('import-file').click(); break;
+    case 'imp-merge': case 'imp-overwrite': case 'imp-skip': case 'imp-cancel': closeClash(act.slice(4)); break;
   }
 });
 
@@ -816,12 +936,20 @@ document.addEventListener('input', onField);
 document.addEventListener('change', (e) => { if (e.target.tagName === 'SELECT' || e.target.type === 'checkbox') onField(e); });
 
 document.addEventListener('keydown', (e) => {
+  if (answer) { if (e.key === 'Escape') closeClash('cancel'); return; }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
     e.preventDefault();
     if (S.mode === 'edit') (S.draft.type === 'card' ? saveCard : saveSub)();
   }
 });
 window.addEventListener('beforeunload', (e) => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });
+
+$('btn-import').onclick = () => $('import-file').click();
+$('import-file').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; importFile(f); }; // cleared so the same file can come in again
+const dragsFiles = (e) => [...e.dataTransfer.types].includes('Files');
+document.addEventListener('dragover', (e) => { if (dragsFiles(e) && !answer) { e.preventDefault(); document.body.classList.add('dropping'); } });
+document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('dropping'); });
+document.addEventListener('drop', (e) => { e.preventDefault(); document.body.classList.remove('dropping'); importFile(e.dataTransfer.files[0]); });
 
 $('btn-check').onclick = () => runCheck();
 $('btn-graph').onclick = () => { if (!leaveOk()) return; S.mode = 'graph'; S.draft = null; render(); loadGraph(); };
